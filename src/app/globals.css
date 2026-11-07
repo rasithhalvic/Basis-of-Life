@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+@theme {
+  --color-burgundy: #800020;
+  --color-burgundy-deep: #4a0012;
+  --color-ivory: #fff8f0;
+  --color-gold: #c6a15b;
+  /* Darker gold for text on light backgrounds (4.6:1 on white). */
+  --color-gold-ink: #7a5a1c;
+  --color-ink: #241c20;
+  --color-muted: #5c4f55;
+  --color-line: #e8dccb;
+  --color-success: #1d6b3a;
+  --color-danger: #a1121f;
+
+  --font-sans: var(--font-body), var(--font-sinhala), system-ui, sans-serif;
+  --font-display: var(--font-heading), var(--font-sinhala-serif), Georgia, serif;
+}
+
+html {
+  background: var(--color-ivory);
+  color: var(--color-ink);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-ivory);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+}
+
+/* Sinhala needs a little more line height and no letter-spacing tricks. */
+:lang(si) body,
+html[lang="si"] body {
+  line-height: 1.75;
+}
+
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-burgundy);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.on-dark :focus-visible {
+  outline-color: var(--color-gold);
+}
+
+/* Decorative gold rule used under headings. */
+.gold-rule {
+  display: block;
+  width: 4rem;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-gold), transparent);
+  border-radius: 2px;
+}
+
+.prose-museum p + p {
+  margin-top: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-fade-up {
+  animation: fade-up 0.35s ease-out both;
+}
