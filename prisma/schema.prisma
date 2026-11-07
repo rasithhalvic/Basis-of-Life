@@ -1,0 +1,390 @@
+// Exhibition database schema.
+// All timestamps are stored in UTC (timestamptz). Display uses Asia/Colombo.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url       = env("DATABASE_URL")
+  /// Direct (non-pooled) connection used by migrations. Same as DATABASE_URL locally.
+  directUrl = env("DIRECT_URL")
+}
+
+enum Locale {
+  en
+  si
+}
+
+/// Where a record came from. SAMPLE and DEMO data must never be presented as approved content.
+enum DataOrigin {
+  SAMPLE
+  DEMO
+  PRODUCTION
+}
+
+enum ReviewStatus {
+  UNREVIEWED
+  REVIEWED
+  REJECTED
+}
+
+enum QuestionCategory {
+  SCIENCE
+  GEOGRAPHY
+  HISTORY
+  ARTS
+  SPORTS
+  TECHNOLOGY
+  EVERYDAY
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum SessionStatus {
+  DRAFT // created, not yet accepting participants
+  OPEN // registration open, waiting room
+  LIVE // questions running on the server schedule
+  COMPLETED // last question closed, awaiting organizer finalization
+  FINALIZED // official results
+  CANCELLED // never counts towards any ranking
+}
+
+// ---------------------------------------------------------------------------
+// Exhibition settings (singleton row id = 1)
+// ---------------------------------------------------------------------------
+
+model ExhibitionSettings {
+  id                        Int                             @id @default(1)
+  /// Public base URL used for printed QR codes, e.g. https://exhibition.example.lk
+  publicBaseUrl             String?
+  eventStartsAt             DateTime?                       @db.Timestamptz(3)
+  eventEndsAt               DateTime?                       @db.Timestamptz(3)
+  /// Top-N ranked participants per finalized session who qualify for the grand leaderboard.
+  grandQualifyTopN          Int                             @default(3)
+  defaultQuestionCount      Int                             @default(10)
+  defaultSecondsPerQuestion Int                             @default(30)
+  /// Organizer declaration that the grand leaderboard is final (only allowed when no session is pending).
+  rankingsDeclaredFinal     Boolean                         @default(false)
+  updatedAt                 DateTime                        @updatedAt @db.Timestamptz(3)
+  translations              ExhibitionSettingsTranslation[]
+}
+
+model ExhibitionSettingsTranslation {
+  settingsId   Int
+  locale       Locale
+  name         String
+  introduction String
+  venue        String
+  /// Optional free-text date line, e.g. "15–20 December 2026". Falls back to formatted dates.
+  dateText     String?
+  settings     ExhibitionSettings @relation(fields: [settingsId], references: [id], onDelete: Cascade)
+
+  @@id([settingsId, locale])
+}
+
+// ---------------------------------------------------------------------------
+// Pioneers
+// ---------------------------------------------------------------------------
+
+model Pioneer {
+  id                  String                @id @default(cuid())
+  /// Stable slug used in printed QR codes. Changing it creates a redirect.
+  slug                String                @unique
+  sortOrder           Int
+  isPublished         Boolean               @default(false)
+  dataOrigin          DataOrigin            @default(SAMPLE)
+  /// Portrait image URL. Null until a licensed image is supplied.
+  portraitUrl         String?
+  /// Credit line exactly as required by the image licence. Never invented.
+  portraitAttribution String?
+  portraitLicense     String?
+  /// [{ "title": string, "url"?: string }]
+  sources             Json                  @default("[]")
+  createdAt           DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime              @updatedAt @db.Timestamptz(3)
+  translations        PioneerTranslation[]
+  redirects           PioneerSlugRedirect[]
+
+  @@index([isPublished, sortOrder])
+}
+
+model PioneerTranslation {
+  pioneerId     String
+  locale        Locale
+  name          String
+  lifeDates     String
+  field         String
+  introduction  String
+  biography     String
+  /// string[]
+  contributions Json    @default("[]")
+  /// [{ "year": string, "event": string }]
+  timeline      Json    @default("[]")
+  /// string[]
+  facts         Json    @default("[]")
+  portraitAlt   String
+  pioneer       Pioneer @relation(fields: [pioneerId], references: [id], onDelete: Cascade)
+
+  @@id([pioneerId, locale])
+}
+
+/// Old slugs keep working (permanent redirect) so printed QR codes never break.
+model PioneerSlugRedirect {
+  oldSlug   String   @id
+  pioneerId String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  pioneer   Pioneer  @relation(fields: [pioneerId], references: [id], onDelete: Cascade)
+
+  @@index([pioneerId])
+}
+
+// ---------------------------------------------------------------------------
+// Visitors (participants)
+// ---------------------------------------------------------------------------
+
+model Participant {
+  id                String                  @id @default(cuid())
+  nickname          String
+  /// Consent to display the nickname on public leaderboards.
+  nicknameConsent   Boolean
+  /// HMAC-SHA256 of the recovery code. The plain code is shown once to the visitor.
+  recoveryCodeHash  String                  @unique
+  preferredLocale   Locale                  @default(en)
+  createdAt         DateTime                @default(now()) @db.Timestamptz(3)
+  credentials       ParticipantCredential[]
+  memberships       SessionParticipant[]
+}
+
+/// Server-issued opaque session token (stored hashed) held in an httpOnly cookie.
+model ParticipantCredential {
+  id            String      @id @default(cuid())
+  participantId String
+  tokenHash     String      @unique
+  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
+  expiresAt     DateTime    @db.Timestamptz(3)
+  revokedAt     DateTime?   @db.Timestamptz(3)
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([participantId])
+}
+
+// ---------------------------------------------------------------------------
+// Administrators
+// ---------------------------------------------------------------------------
+
+model AdminUser {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  name             String
+  passwordHash     String
+  isActive         Boolean   @default(true)
+  /// Incremented to invalidate all existing admin sessions (password change, deactivation).
+  tokenVersion     Int       @default(0)
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime? @db.Timestamptz(3)
+  lastLoginAt      DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  auditLogs        AuditLog[]
+  disqualifications SessionParticipant[] @relation("DisqualifiedBy")
+  reviewedQuestions Question[]           @relation("ReviewedBy")
+  createdSessions   QuizSession[]        @relation("CreatedBy")
+}
+
+// ---------------------------------------------------------------------------
+// Question bank
+// ---------------------------------------------------------------------------
+
+model Question {
+  id           String                @id @default(cuid())
+  category     QuestionCategory
+  difficulty   Difficulty            @default(MEDIUM)
+  reviewStatus ReviewStatus          @default(UNREVIEWED)
+  dataOrigin   DataOrigin            @default(PRODUCTION)
+  /// Reference used to verify the answer.
+  source       String?
+  reviewedById String?
+  reviewedAt   DateTime?             @db.Timestamptz(3)
+  createdAt    DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime              @updatedAt @db.Timestamptz(3)
+  reviewedBy   AdminUser?            @relation("ReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  translations QuestionTranslation[]
+  options      QuestionOption[]
+  sessionUses  SessionQuestion[]
+
+  @@index([reviewStatus, category])
+}
+
+/// The same question expressed in one language. All translations of a Question
+/// share the same options (by position) and the same correct answer.
+model QuestionTranslation {
+  questionId  String
+  locale      Locale
+  prompt      String
+  explanation String?
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@id([questionId, locale])
+}
+
+model QuestionOption {
+  id           String                      @id @default(cuid())
+  questionId   String
+  /// 0..3
+  position     Int
+  isCorrect    Boolean                     @default(false)
+  question     Question                    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  translations QuestionOptionTranslation[]
+
+  @@unique([questionId, position])
+}
+
+model QuestionOptionTranslation {
+  optionId String
+  locale   Locale
+  text     String
+  option   QuestionOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@id([optionId, locale])
+}
+
+// ---------------------------------------------------------------------------
+// Quiz sessions
+// ---------------------------------------------------------------------------
+
+model QuizSession {
+  id                 String               @id @default(cuid())
+  /// Short human-friendly join code, e.g. "K7P2QX".
+  code               String               @unique
+  title              String?
+  status             SessionStatus        @default(DRAFT)
+  /// Fixed at 20 (enforced by a CHECK constraint).
+  capacity           Int                  @default(20)
+  questionCount      Int                  @default(10)
+  secondsPerQuestion Int                  @default(30)
+  /// Pause between questions (no answers revealed).
+  breakSeconds       Int                  @default(5)
+  /// Countdown between "start" and the first question.
+  countdownSeconds   Int                  @default(10)
+  /// Empty = all categories.
+  categories         QuestionCategory[]   @default([])
+  createdById        String?
+  createdAt          DateTime             @default(now()) @db.Timestamptz(3)
+  openedAt           DateTime?            @db.Timestamptz(3)
+  startedAt          DateTime?            @db.Timestamptz(3)
+  endsAt             DateTime?            @db.Timestamptz(3)
+  completedAt        DateTime?            @db.Timestamptz(3)
+  finalizedAt        DateTime?            @db.Timestamptz(3)
+  cancelledAt        DateTime?            @db.Timestamptz(3)
+  cancelReason       String?
+  createdBy          AdminUser?           @relation("CreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  questions          SessionQuestion[]
+  participants       SessionParticipant[]
+
+  @@index([status, createdAt])
+}
+
+/// Immutable snapshot of a question taken when the session starts.
+/// A database trigger rejects UPDATEs to this table and SessionQuestionOption.
+model SessionQuestion {
+  id                 String                  @id @default(cuid())
+  sessionId          String
+  position           Int
+  sourceQuestionId   String?
+  category           QuestionCategory
+  difficulty         Difficulty
+  promptEn           String
+  promptSi           String
+  explanationEn      String?
+  explanationSi      String?
+  source             String?
+  secondsPerQuestion Int
+  opensAt            DateTime                @db.Timestamptz(3)
+  closesAt           DateTime                @db.Timestamptz(3)
+  session            QuizSession             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sourceQuestion     Question?               @relation(fields: [sourceQuestionId], references: [id], onDelete: SetNull)
+  options            SessionQuestionOption[]
+  answers            Answer[]
+
+  @@unique([sessionId, position])
+  @@index([sessionId, opensAt])
+}
+
+model SessionQuestionOption {
+  id                String          @id @default(cuid())
+  sessionQuestionId String
+  position          Int
+  textEn            String
+  textSi            String
+  isCorrect         Boolean
+  sessionQuestion   SessionQuestion @relation(fields: [sessionQuestionId], references: [id], onDelete: Cascade)
+  answers           Answer[]
+
+  @@unique([sessionQuestionId, position])
+}
+
+model SessionParticipant {
+  id                     String      @id @default(cuid())
+  sessionId              String
+  participantId          String
+  admittedAt             DateTime    @default(now()) @db.Timestamptz(3)
+  disqualifiedAt         DateTime?   @db.Timestamptz(3)
+  disqualificationReason String?
+  disqualifiedById       String?
+  session                QuizSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  participant            Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  disqualifiedBy         AdminUser?  @relation("DisqualifiedBy", fields: [disqualifiedById], references: [id], onDelete: SetNull)
+  answers                Answer[]
+
+  @@unique([sessionId, participantId])
+  @@index([participantId])
+}
+
+model Answer {
+  id                   String                @id @default(cuid())
+  sessionParticipantId String
+  sessionQuestionId    String
+  selectedOptionId     String
+  /// Server receipt time (database clock).
+  receivedAt           DateTime              @db.Timestamptz(3)
+  /// receivedAt - question opensAt, clamped to [0, question duration].
+  responseMs           Int
+  sessionParticipant   SessionParticipant    @relation(fields: [sessionParticipantId], references: [id], onDelete: Cascade)
+  sessionQuestion      SessionQuestion       @relation(fields: [sessionQuestionId], references: [id], onDelete: Cascade)
+  selectedOption       SessionQuestionOption @relation(fields: [selectedOptionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionParticipantId, sessionQuestionId])
+  @@index([sessionQuestionId])
+}
+
+// ---------------------------------------------------------------------------
+// Operations
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String     @id @default(cuid())
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String?
+  details    Json       @default("{}")
+  createdAt  DateTime   @default(now()) @db.Timestamptz(3)
+  actor      AdminUser? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}
+
+/// Fixed-window rate-limit counters shared by all app instances.
+model RateLimitBucket {
+  key         String   @id
+  windowStart DateTime @db.Timestamptz(3)
+  count       Int
+
+  @@index([windowStart])
+}

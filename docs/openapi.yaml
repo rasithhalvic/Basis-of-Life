@@ -1,0 +1,456 @@
+openapi: 3.1.0
+info:
+  title: Pioneers of Medicine Exhibition API
+  version: 1.0.0
+  description: |
+    Backend API for the exhibition website. All routes are Next.js route handlers.
+
+    **Authentication**
+    - *Visitor*: httpOnly cookie `visitor_session` (production: `__Host-visitor`) issued by
+      `POST /api/participants` or `POST /api/participants/recover`. Opaque random token; the
+      server stores only an HMAC of it.
+    - *Admin*: NextAuth session cookie obtained through `/admin/login`
+      (credentials provider, JWT, 12 h). Every `/api/admin/*` route re-checks the account in
+      the database on every request.
+
+    **CSRF / origin**: every POST/PUT/PATCH/DELETE must come from the same origin (`Origin`
+    header, or `Sec-Fetch-Site: same-origin`). Cross-site requests get `403 ORIGIN_REJECTED`.
+
+    **Errors** always use `{ "error": { "code", "message", "details"? } }`.
+
+    **Time**: all timestamps are ISO-8601 UTC. The UI displays them in Asia/Colombo.
+servers:
+  - url: http://localhost:3000
+    description: Local development
+security:
+  - {}
+tags:
+  - name: Public
+  - name: Visitor
+  - name: Admin
+components:
+  securitySchemes:
+    visitorCookie: { type: apiKey, in: cookie, name: visitor_session }
+    adminSession: { type: apiKey, in: cookie, name: next-auth.session-token, description: "Production cookie name: __Secure-next-auth.session-token" }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [BAD_REQUEST, VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN, ORIGIN_REJECTED, NOT_FOUND, RATE_LIMITED, CONFLICT,
+                SESSION_FULL, SESSION_CLOSED, SESSION_NOT_LIVE, ALREADY_IN_ACTIVE_SESSION, NOT_A_MEMBER, DISQUALIFIED,
+                QUESTION_NOT_OPEN, QUESTION_EXPIRED, ANSWER_ALREADY_SUBMITTED, INVALID_OPTION, INVALID_TRANSITION,
+                NOT_ENOUGH_QUESTIONS, PUBLISH_LIMIT, SLUG_TAKEN, RESULTS_NOT_AVAILABLE, INTERNAL_ERROR]
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+    Text: { type: object, properties: { en: { type: string }, si: { type: string } } }
+    SessionStatus: { type: string, enum: [DRAFT, OPEN, LIVE, COMPLETED, FINALIZED, CANCELLED] }
+    Category: { type: string, enum: [SCIENCE, GEOGRAPHY, HISTORY, ARTS, SPORTS, TECHNOLOGY, EVERYDAY] }
+    PioneerSummary:
+      type: object
+      properties:
+        slug: { type: string, example: edward-jenner }
+        isSample: { type: boolean }
+        name: { type: string }
+        nameEn: { type: string }
+        lifeDates: { type: string }
+        field: { type: string }
+        introduction: { type: string }
+        portrait: { $ref: "#/components/schemas/Portrait" }
+    Portrait:
+      type: object
+      properties:
+        url: { type: [string, "null"] }
+        alt: { type: string }
+        attribution: { type: [string, "null"] }
+        license: { type: [string, "null"] }
+    Pioneer:
+      allOf:
+        - $ref: "#/components/schemas/PioneerSummary"
+        - type: object
+          properties:
+            locale: { type: string, enum: [en, si] }
+            biography: { type: string }
+            contributions: { type: array, items: { type: string } }
+            timeline: { type: array, items: { type: object, properties: { year: { type: string }, event: { type: string } } } }
+            facts: { type: array, items: { type: string } }
+            sources: { type: array, items: { type: object, properties: { title: { type: string }, url: { type: [string, "null"] } } } }
+    OpenSession:
+      type: object
+      properties:
+        id: { type: string }
+        code: { type: string, example: K7P2QX }
+        title: { type: [string, "null"] }
+        capacity: { type: integer, const: 20 }
+        admittedCount: { type: integer }
+        seatsLeft: { type: integer }
+        isFull: { type: boolean }
+        questionCount: { type: integer }
+        secondsPerQuestion: { type: integer }
+    Alternative:
+      type: object
+      properties: { id: { type: string }, code: { type: string }, title: { type: [string, "null"] }, seatsLeft: { type: integer } }
+    LiveQuestion:
+      type: object
+      description: The currently open question. Never includes correctness flags.
+      properties:
+        id: { type: string }
+        number: { type: integer }
+        category: { $ref: "#/components/schemas/Category" }
+        prompt: { $ref: "#/components/schemas/Text" }
+        options: { type: array, items: { type: object, properties: { id: { type: string }, text: { $ref: "#/components/schemas/Text" } } } }
+        opensAt: { type: string, format: date-time }
+        closesAt: { type: string, format: date-time }
+        myAnswer: { type: [object, "null"], properties: { optionId: { type: string }, receivedAt: { type: string, format: date-time } } }
+    SessionState:
+      type: object
+      properties:
+        serverNow: { type: string, format: date-time }
+        phase: { type: string, enum: [waiting, countdown, question, break, finished, cancelled] }
+        session:
+          type: object
+          properties:
+            id: { type: string }
+            code: { type: string }
+            title: { type: [string, "null"] }
+            status: { $ref: "#/components/schemas/SessionStatus" }
+            capacity: { type: integer }
+            admittedCount: { type: integer }
+            questionCount: { type: integer }
+            secondsPerQuestion: { type: integer }
+            breakSeconds: { type: integer }
+            startedAt: { type: [string, "null"], format: date-time }
+            endsAt: { type: [string, "null"], format: date-time }
+        me: { type: object, properties: { admitted: { type: boolean }, disqualified: { type: boolean } } }
+        live:
+          type: [object, "null"]
+          properties:
+            total: { type: integer }
+            completed: { type: integer }
+            number: { type: integer }
+            closesAt: { type: string, format: date-time }
+            nextOpensAt: { type: [string, "null"], format: date-time }
+            question: { oneOf: [{ $ref: "#/components/schemas/LiveQuestion" }, { type: "null" }] }
+    BoardEntry:
+      type: object
+      properties:
+        rank: { type: integer, description: "Shared for identical score and time (1,1,3…)" }
+        displayName: { type: [string, "null"], description: "null when the visitor did not consent (show 'Anonymous participant')" }
+        totalPoints: { type: integer }
+        totalTimeMs: { type: integer }
+        isMe: { type: boolean }
+    QuestionInput:
+      type: object
+      required: [category, difficulty, correctIndex, translations]
+      properties:
+        category: { $ref: "#/components/schemas/Category" }
+        difficulty: { type: string, enum: [EASY, MEDIUM, HARD] }
+        source: { type: [string, "null"], maxLength: 500 }
+        correctIndex: { type: integer, minimum: 0, maximum: 3 }
+        translations:
+          type: object
+          required: [en]
+          properties:
+            en: { $ref: "#/components/schemas/QuestionTranslation" }
+            si: { oneOf: [{ $ref: "#/components/schemas/QuestionTranslation" }, { type: "null" }] }
+    QuestionTranslation:
+      type: object
+      required: [prompt, options]
+      properties:
+        prompt: { type: string, minLength: 1, maxLength: 500 }
+        options: { type: array, minItems: 4, maxItems: 4, items: { type: string, minLength: 1, maxLength: 200 } }
+        explanation: { type: [string, "null"], maxLength: 1000 }
+    SessionSettings:
+      type: object
+      properties:
+        title: { type: [string, "null"], maxLength: 80 }
+        questionCount: { type: integer, minimum: 1, maximum: 50, default: 10 }
+        secondsPerQuestion: { type: integer, minimum: 5, maximum: 300, default: 30 }
+        breakSeconds: { type: integer, minimum: 0, maximum: 60, default: 5 }
+        countdownSeconds: { type: integer, minimum: 0, maximum: 120, default: 10 }
+        categories: { type: array, items: { $ref: "#/components/schemas/Category" }, description: "Empty = all" }
+  responses:
+    Error: { description: Error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+paths:
+  /api/pioneers:
+    get:
+      tags: [Public]
+      summary: Published pioneers (homepage grid)
+      parameters: [{ name: lang, in: query, schema: { type: string, enum: [en, si] }, description: "Defaults to the lang cookie, then en" }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { locale: { type: string }, pioneers: { type: array, items: { $ref: "#/components/schemas/PioneerSummary" } } } } } } }
+        "429": { $ref: "#/components/responses/Error" }
+  /api/pioneers/{slug}:
+    get:
+      tags: [Public]
+      summary: One published pioneer
+      parameters: [{ name: slug, in: path, required: true, schema: { type: string } }, { name: lang, in: query, schema: { type: string, enum: [en, si] } }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { pioneer: { $ref: "#/components/schemas/Pioneer" } } } } } }
+        "308": { description: Slug changed; Location header points to the new resource }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/sessions/open:
+    get:
+      tags: [Public]
+      summary: Sessions currently accepting participants
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { sessions: { type: array, items: { $ref: "#/components/schemas/OpenSession" } } } } } } }
+  /api/participants:
+    post:
+      tags: [Visitor]
+      summary: Register a visitor (sets the visitor session cookie)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nickname, consentToDisplayNickname]
+              properties:
+                nickname: { type: string, minLength: 2, maxLength: 24, description: "Letters (any script), digits, spaces, . _ - ; trimmed and NFC-normalised" }
+                consentToDisplayNickname: { type: boolean }
+                locale: { type: string, enum: [en, si], default: en }
+            example: { nickname: "Nimal", consentToDisplayNickname: true, locale: "si" }
+      responses:
+        "201":
+          description: Registered. The recovery code is returned once and never again.
+          headers: { Set-Cookie: { schema: { type: string } } }
+          content: { application/json: { example: { participant: { id: "cm3…", nickname: "Nimal", nicknameConsent: true }, recoveryCode: "K7P2-QX9M-4HRT" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /api/participants/me:
+    get:
+      tags: [Visitor]
+      security: [{ visitorCookie: [] }]
+      summary: Current visitor and active session
+      responses:
+        "200": { description: OK, content: { application/json: { example: { participant: { id: "cm3…", nickname: "Nimal", nicknameConsent: true }, activeSession: { id: "cm4…", code: "K7P2QX", status: "OPEN" } } } } }
+        "401": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Visitor]
+      summary: Sign out on this device (revokes the token)
+      responses: { "200": { description: OK } }
+  /api/participants/recover:
+    post:
+      tags: [Visitor]
+      summary: Restore a visitor identity with a recovery code
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [recoveryCode], properties: { recoveryCode: { type: string, description: "12 letters/digits; dashes, spaces and case ignored" } } }, example: { recoveryCode: "K7P2-QX9M-4HRT" } } } }
+      responses:
+        "200": { description: OK; new visitor session cookie set }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /api/sessions/{code}/join:
+    post:
+      tags: [Visitor]
+      security: [{ visitorCookie: [] }]
+      summary: Join a session by its 6-character code (transactional, row-locked; max 20)
+      parameters: [{ name: code, in: path, required: true, schema: { type: string, example: K7P2QX } }]
+      responses:
+        "200": { description: Admitted (idempotent), content: { application/json: { example: { admitted: true, sessionId: "cm4…", alreadyAdmitted: false } } } }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: SESSION_FULL / SESSION_CLOSED (details.alternatives lists open sessions with seats) or ALREADY_IN_ACTIVE_SESSION
+          content: { application/json: { example: { error: { code: SESSION_FULL, message: "This session is full (20 participants).", details: { alternatives: [{ id: "cm5…", code: "M3TR8B", title: null, seatsLeft: 14 }] } } } } }
+  /api/sessions/{id}/leave:
+    post:
+      tags: [Visitor]
+      security: [{ visitorCookie: [] }]
+      summary: Leave before the session starts
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: OK }, "409": { $ref: "#/components/responses/Error" } }
+  /api/sessions/{id}/state:
+    get:
+      tags: [Visitor]
+      summary: Authoritative live state for polling
+      description: Anonymous callers get public fields only. Admitted visitors also receive the currently open question (no future questions, no correctness) and their accepted answer. Poll with backoff; faster near `closesAt`/`nextOpensAt`.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/SessionState" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /api/sessions/{id}/answers:
+    post:
+      tags: [Visitor]
+      security: [{ visitorCookie: [] }]
+      summary: Submit one answer to the open question
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [sessionQuestionId, optionId], properties: { sessionQuestionId: { type: string }, optionId: { type: string } } } } } }
+      responses:
+        "201": { description: Accepted, content: { application/json: { example: { status: accepted, duplicate: false, sessionQuestionId: "cm6…", optionId: "cm7…", receivedAt: "2026-12-15T05:31:12.345Z" } } } }
+        "200": { description: Identical retry of an accepted answer (duplicate true) }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { description: NOT_A_MEMBER or DISQUALIFIED, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { description: "QUESTION_EXPIRED (server deadline passed), QUESTION_NOT_OPEN, ANSWER_ALREADY_SUBMITTED (different option; details.acceptedOptionId), SESSION_NOT_LIVE", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "422": { description: INVALID_OPTION, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /api/sessions/{id}/results:
+    get:
+      tags: [Visitor]
+      security: [{ visitorCookie: [] }]
+      summary: Own per-question results (only after the session finishes)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: "official=false until finalized", content: { application/json: { example: { official: false, disqualified: false, totalPoints: 700, totalTimeMs: 98345, rank: 2, rankedCount: 18, questions: [{ number: 1, isCorrect: true, points: 100, responseMs: 6421, answered: true, selectedOptionId: "…", options: [{ id: "…", text: { en: "Au", si: "Au" }, isCorrect: true }] }] } } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { description: RESULTS_NOT_AVAILABLE, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /api/sessions/{id}/leaderboard:
+    get:
+      tags: [Public]
+      summary: Session leaderboard (official only when FINALIZED)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { official: { type: boolean }, session: { type: object }, entries: { type: array, items: { $ref: "#/components/schemas/BoardEntry" } } } } } } }
+        "409": { description: RESULTS_NOT_AVAILABLE (session not finished), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /api/leaderboards/grand:
+    get:
+      tags: [Public]
+      summary: Grand leaderboard
+      description: Top N (configurable, default 3, ties at the cutoff included) from each FINALIZED session; one entry per visitor with their best qualifying result; scores are never summed across sessions. Disqualified and cancelled results excluded.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              example: { provisional: true, qualifyTopN: 3, finalizedSessions: 4, pendingSessions: 1, entries: [{ rank: 1, displayName: "Nimal", sessionCode: "K7P2QX", sessionTitle: null, sessionRank: 1, totalPoints: 1000, totalTimeMs: 61234, isMe: false }] }
+  /api/leaderboards/sessions:
+    get:
+      tags: [Public]
+      summary: Finished sessions with leaderboards
+      responses: { "200": { description: OK } }
+
+  # ------------------------------------------------------------------ admin
+  /api/admin/me:
+    get: { tags: [Admin], security: [{ adminSession: [] }], summary: Signed-in administrator, responses: { "200": { description: OK }, "401": { $ref: "#/components/responses/Error" } } }
+  /api/admin/settings:
+    get: { tags: [Admin], security: [{ adminSession: [] }], summary: Exhibition settings, responses: { "200": { description: OK }, "401": { $ref: "#/components/responses/Error" } } }
+    put:
+      tags: [Admin]
+      security: [{ adminSession: [] }]
+      summary: Update exhibition text, dates, QR base URL and ranking settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              publicBaseUrl: "https://exhibition.example.lk"
+              eventStartsAt: "2026-12-15T09:00:00+05:30"
+              eventEndsAt: "2026-12-20T17:00:00+05:30"
+              grandQualifyTopN: 3
+              defaultQuestionCount: 10
+              defaultSecondsPerQuestion: 30
+              rankingsDeclaredFinal: false
+              translations: { en: { name: "…", introduction: "…", venue: "…", dateText: null }, si: { name: "…", introduction: "…", venue: "…", dateText: null } }
+      responses: { "200": { description: OK }, "400": { $ref: "#/components/responses/Error" }, "401": { $ref: "#/components/responses/Error" }, "409": { description: "INVALID_TRANSITION (declaring final while sessions pending)" } }
+  /api/admin/pioneers:
+    get: { tags: [Admin], security: [{ adminSession: [] }], summary: All pioneers incl. drafts and redirects, responses: { "200": { description: OK }, "401": { $ref: "#/components/responses/Error" } } }
+    post:
+      tags: [Admin]
+      security: [{ adminSession: [] }]
+      summary: Create a pioneer
+      description: "slug: lowercase/digits/hyphens, unique, not a previously used slug. At most 15 published (409 PUBLISH_LIMIT)."
+      requestBody: { required: true, content: { application/json: { example: { slug: "frederick-banting", sortOrder: 16, isPublished: false, portraitUrl: null, portraitAttribution: null, portraitLicense: null, sources: [{ title: "…", url: "https://…" }], translations: { en: { name: "…", lifeDates: "1891 – 1941", field: "…", introduction: "…", biography: "…", contributions: ["…"], timeline: [{ year: "1921", event: "…" }], facts: ["…"], portraitAlt: "…" }, si: null } } } } }
+      responses: { "201": { description: Created }, "400": { $ref: "#/components/responses/Error" }, "401": { $ref: "#/components/responses/Error" }, "409": { description: SLUG_TAKEN or PUBLISH_LIMIT } }
+  /api/admin/pioneers/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get: { tags: [Admin], security: [{ adminSession: [] }], summary: One pioneer, responses: { "200": { description: OK }, "404": { $ref: "#/components/responses/Error" } } }
+    put: { tags: [Admin], security: [{ adminSession: [] }], summary: Update (slug change creates a permanent redirect from the old slug), responses: { "200": { description: OK }, "409": { description: SLUG_TAKEN or PUBLISH_LIMIT } } }
+    delete: { tags: [Admin], security: [{ adminSession: [] }], summary: Delete an unpublished pioneer, responses: { "200": { description: OK }, "409": { description: Published pioneers cannot be deleted } } }
+  /api/admin/questions:
+    get:
+      tags: [Admin]
+      security: [{ adminSession: [] }]
+      summary: List questions
+      parameters:
+        - { name: category, in: query, schema: { $ref: "#/components/schemas/Category" } }
+        - { name: reviewStatus, in: query, schema: { type: string, enum: [UNREVIEWED, REVIEWED, REJECTED] } }
+        - { name: q, in: query, schema: { type: string } }
+      responses: { "200": { description: OK } }
+    post:
+      tags: [Admin]
+      security: [{ adminSession: [] }]
+      summary: Create a question (starts UNREVIEWED)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/QuestionInput" } } } }
+      responses: { "201": { description: Created }, "400": { $ref: "#/components/responses/Error" } }
+  /api/admin/questions/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get: { tags: [Admin], security: [{ adminSession: [] }], summary: One question, responses: { "200": { description: OK } } }
+    put: { tags: [Admin], security: [{ adminSession: [] }], summary: Update (resets to UNREVIEWED; existing session snapshots unaffected), requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/QuestionInput" } } } }, responses: { "200": { description: OK } } }
+    delete: { tags: [Admin], security: [{ adminSession: [] }], summary: Delete, responses: { "200": { description: OK } } }
+  /api/admin/questions/{id}/review:
+    post:
+      tags: [Admin]
+      security: [{ adminSession: [] }]
+      summary: Set review status
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { content: { application/json: { example: { reviewStatus: REVIEWED } } } }
+      responses: { "200": { description: OK } }
+  /api/admin/sessions:
+    get: { tags: [Admin], security: [{ adminSession: [] }], summary: All sessions, responses: { "200": { description: OK } } }
+    post:
+      tags: [Admin]
+      security: [{ adminSession: [] }]
+      summary: Create a session (capacity fixed at 20; unique join code)
+      requestBody: { content: { application/json: { schema: { allOf: [{ $ref: "#/components/schemas/SessionSettings" }, { type: object, properties: { openImmediately: { type: boolean } } }] } } } }
+      responses: { "201": { description: Created, content: { application/json: { example: { session: { id: "cm4…", code: "K7P2QX", status: "OPEN", capacity: 20 } } } } } }
+  /api/admin/sessions/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    get: { tags: [Admin], security: [{ adminSession: [] }], summary: "Admissions, question progress and live ranking", responses: { "200": { description: OK } } }
+    patch: { tags: [Admin], security: [{ adminSession: [] }], summary: Edit settings (DRAFT/OPEN only), requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/SessionSettings" } } } }, responses: { "200": { description: OK }, "409": { description: INVALID_TRANSITION } } }
+  /api/admin/sessions/{id}/open:
+    post: { tags: [Admin], security: [{ adminSession: [] }], summary: DRAFT → OPEN, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK }, "409": { description: INVALID_TRANSITION } } }
+  /api/admin/sessions/{id}/start:
+    post:
+      tags: [Admin]
+      security: [{ adminSession: [] }]
+      summary: OPEN → LIVE
+      description: Closes admission, snapshots reviewed bilingual questions (immutable, enforced by DB triggers) and fixes every question window on the database clock.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: OK }, "409": { description: "INVALID_TRANSITION or NOT_ENOUGH_QUESTIONS (details.available, details.needed)" } }
+  /api/admin/sessions/{id}/cancel:
+    post:
+      tags: [Admin]
+      security: [{ adminSession: [] }]
+      summary: Cancel (never counts in rankings)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { example: { reason: "Fire drill" } } } }
+      responses: { "200": { description: OK }, "409": { description: INVALID_TRANSITION } }
+  /api/admin/sessions/{id}/finalize:
+    post: { tags: [Admin], security: [{ adminSession: [] }], summary: COMPLETED → FINALIZED (official rankings), parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK }, "409": { description: "INVALID_TRANSITION (still running, or wrong status)" } } }
+  /api/admin/sessions/{id}/participants/{sessionParticipantId}/disqualify:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: sessionParticipantId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Admin]
+      security: [{ adminSession: [] }]
+      summary: Disqualify with reason (audited; rankings recomputed on read)
+      requestBody: { required: true, content: { application/json: { example: { reason: "Second device used" } } } }
+      responses: { "200": { description: OK }, "409": { description: Already disqualified } }
+    delete: { tags: [Admin], security: [{ adminSession: [] }], summary: Reinstate (audited), responses: { "200": { description: OK } } }
+  /api/admin/exports/sessions/{id}:
+    get: { tags: [Admin], security: [{ adminSession: [] }], summary: CSV of a FINALIZED session, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: text/csv (UTF-8 BOM; formula-injection safe) }, "409": { description: RESULTS_NOT_AVAILABLE } } }
+  /api/admin/exports/grand:
+    get: { tags: [Admin], security: [{ adminSession: [] }], summary: CSV of the grand leaderboard, responses: { "200": { description: text/csv } } }
+  /api/admin/qr:
+    get:
+      tags: [Admin]
+      security: [{ adminSession: [] }]
+      summary: QR info, or one QR code
+      description: Without `slug`, returns the base URL, printing warnings (localhost, private IP, preview hosts, non-HTTPS) and the target URL of every published pioneer. With `slug` and `format`, downloads that code. The `X-QR-Target` header echoes the encoded URL.
+      parameters:
+        - { name: slug, in: query, schema: { type: string } }
+        - { name: format, in: query, schema: { type: string, enum: [svg, png], default: svg } }
+      responses: { "200": { description: "JSON, image/svg+xml or image/png" } }
+  /api/admin/qr/all:
+    get: { tags: [Admin], security: [{ adminSession: [] }], summary: ZIP of SVG + PNG codes for all published pioneers with manifest.csv, responses: { "200": { description: application/zip } } }
+  /api/admin/audit:
+    get: { tags: [Admin], security: [{ adminSession: [] }], summary: Recent audit records, parameters: [{ name: limit, in: query, schema: { type: integer, maximum: 500 } }], responses: { "200": { description: OK } } }
