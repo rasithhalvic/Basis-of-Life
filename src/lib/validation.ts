@@ -55,7 +55,7 @@ export const answerSchema = z.object({
 // Admin
 // ---------------------------------------------------------------------------
 
-export const SESSION_CAPACITY = 20;
+export const SESSION_CAPACITY = 30;
 
 export const sessionSettingsSchema = z.object({
   title: z.string().trim().max(80).optional().nullable(),
