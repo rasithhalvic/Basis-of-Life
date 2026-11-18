@@ -13,7 +13,7 @@ export function QuestionEditor({ id }: { id: string }) {
   const router = useRouter();
   const isNew = id === "new";
   const [loaded, setLoaded] = useState(isNew);
-  const [category, setCategory] = useState<string>("SCIENCE");
+  const [category, setCategory] = useState<string>("RADIOLOGY");
   const [difficulty, setDifficulty] = useState<string>("MEDIUM");
   const [source, setSource] = useState("");
   const [correctIndex, setCorrectIndex] = useState(0);
