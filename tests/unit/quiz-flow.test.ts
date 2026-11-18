@@ -57,7 +57,7 @@ describe("starting a session", () => {
     await expect(
       prisma.sessionQuestion.create({
         data: {
-          sessionId: session.id, position: 99, category: "SCIENCE", difficulty: "EASY", promptEn: "x", promptSi: "x",
+          sessionId: session.id, position: 99, category: "RADIOLOGY", difficulty: "EASY", promptEn: "x", promptSi: "x",
           secondsPerQuestion: 30, opensAt: new Date(), closesAt: new Date(),
         },
       }),
