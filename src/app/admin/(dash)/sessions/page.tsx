@@ -51,7 +51,7 @@ export default function AdminSessionsPage() {
       <h1 className="text-3xl font-bold text-burgundy-deep">Quiz sessions</h1>
       <Card>
         <form onSubmit={create} className="space-y-4">
-          <h2 className="text-xl font-bold">Create a session (capacity fixed at 20)</h2>
+          <h2 className="text-xl font-bold">Create a session (capacity fixed at 30)</h2>
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Title (optional)" htmlFor="title">
               <input id="title" className={inputClass} value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Saturday 10:00" />
@@ -106,7 +106,7 @@ export default function AdminSessionsPage() {
                 </td>
                 <td className="p-3">{s.title}</td>
                 <td className="p-3"><Badge tone={statusTone(s.status)}>{s.status}</Badge></td>
-                <td className="p-3">{s._count.participants} / 20</td>
+                <td className="p-3">{s._count.participants} / 30</td>
                 <td className="p-3">{formatDateTime(s.createdAt)}</td>
               </tr>
             ))}
