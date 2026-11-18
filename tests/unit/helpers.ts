@@ -73,7 +73,7 @@ export async function goLiveWithWindows(sessionId: string, windows: Array<[openO
       data: {
         sessionId,
         position: i,
-        category: "SCIENCE",
+        category: "RADIOLOGY",
         difficulty: "MEDIUM",
         promptEn: `Live question ${i}`,
         promptSi: `සජීවී ප්‍රශ්නය ${i}`,
