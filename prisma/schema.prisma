@@ -263,8 +263,8 @@ model QuizSession {
   code               String               @unique
   title              String?
   status             SessionStatus        @default(DRAFT)
-  /// Fixed at 20 (enforced by a CHECK constraint).
-  capacity           Int                  @default(20)
+  /// Fixed at 30 (enforced by a CHECK constraint).
+  capacity           Int                  @default(30)
   questionCount      Int                  @default(10)
   secondsPerQuestion Int                  @default(30)
   /// Pause between questions (no answers revealed).
