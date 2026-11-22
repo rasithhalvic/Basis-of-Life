@@ -70,14 +70,15 @@ export default function AdminSettingsPage() {
 
   const tBlock = (l: "en" | "si", label: string) => {
     const v = form[l];
+    const ref = l === "si" ? form.en : null; // English shown as reference so the Sinhala is a faithful translation
     const set = (patch: Partial<T>) => setForm({ ...form, [l]: { ...v, ...patch } });
     return (
       <Card className="space-y-3" lang={l}>
         <h2 className="text-lg font-bold">{label}</h2>
-        <Field label="Exhibition name" htmlFor={`${l}-name`}><input id={`${l}-name`} className={inputClass} value={v.name} onChange={(e) => set({ name: e.target.value })} /></Field>
-        <Field label="Introduction" htmlFor={`${l}-intro`}><textarea id={`${l}-intro`} rows={4} className={inputClass} value={v.introduction} onChange={(e) => set({ introduction: e.target.value })} /></Field>
-        <Field label="Venue" htmlFor={`${l}-venue`}><input id={`${l}-venue`} className={inputClass} value={v.venue} onChange={(e) => set({ venue: e.target.value })} /></Field>
-        <Field label="Date line (optional, overrides formatted dates)" htmlFor={`${l}-date`}><input id={`${l}-date`} className={inputClass} value={v.dateText} onChange={(e) => set({ dateText: e.target.value })} /></Field>
+        <Field label="Exhibition name" hint={ref ? `English: ${ref.name || "—"}` : undefined} htmlFor={`${l}-name`}><input id={`${l}-name`} className={inputClass} value={v.name} onChange={(e) => set({ name: e.target.value })} /></Field>
+        <Field label="Introduction" hint={ref ? `English: ${ref.introduction || "—"}` : undefined} htmlFor={`${l}-intro`}><textarea id={`${l}-intro`} rows={4} className={inputClass} value={v.introduction} onChange={(e) => set({ introduction: e.target.value })} /></Field>
+        <Field label="Venue" hint={ref ? `English: ${ref.venue || "—"}` : undefined} htmlFor={`${l}-venue`}><input id={`${l}-venue`} className={inputClass} value={v.venue} onChange={(e) => set({ venue: e.target.value })} /></Field>
+        <Field label="Date line (optional, overrides formatted dates)" hint={ref ? `English: ${ref.dateText || "—"}` : undefined} htmlFor={`${l}-date`}><input id={`${l}-date`} className={inputClass} value={v.dateText} onChange={(e) => set({ dateText: e.target.value })} /></Field>
       </Card>
     );
   };
