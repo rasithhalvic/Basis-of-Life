@@ -62,7 +62,7 @@ export function PioneerGrid({ pioneers }: { pioneers: PioneerCard[] }) {
                 <span className="mt-1 text-sm text-ink">{p.field}</span>
                 {p.isSample && (
                   <span className="mt-2">
-                    <Badge tone="gold">Sample</Badge>
+                    <Badge tone="gold">{t("badge.sample")}</Badge>
                   </span>
                 )}
               </Link>
