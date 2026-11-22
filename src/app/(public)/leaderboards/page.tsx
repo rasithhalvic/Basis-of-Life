@@ -5,7 +5,10 @@ import { getT } from "@/i18n/server";
 import { formatDateTime } from "@/lib/format";
 import { finalizedSessionsList } from "@/server/services/leaderboards";
 
-export const metadata: Metadata = { title: "Leaderboards" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("meta.leaderboards") };
+}
 
 export default async function LeaderboardsPage() {
   const { t, locale } = await getT();
