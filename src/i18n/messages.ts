@@ -129,6 +129,7 @@ const en = {
   "cat.GASTROINTESTINAL": "Gastro-intestinal system",
   "cat.GENETICS": "Genetics",
   "cat.ENDOCRINE": "Endocrine & reproductive systems",
+  "cat.GENERAL": "General knowledge",
 
   "results.title": "Your results",
   "results.points": "Points",
@@ -300,6 +301,7 @@ const si: Record<MessageKey, string> = {
   "cat.GASTROINTESTINAL": "ආහාර ජීරණ පද්ධතිය",
   "cat.GENETICS": "ප්‍රවේණි විද්‍යාව",
   "cat.ENDOCRINE": "අන්තරාසර්ග සහ ප්‍රජනන පද්ධති",
+  "cat.GENERAL": "සාමාන්‍ය දැනුම",
 
   "results.title": "ඔබේ ප්‍රතිඵල",
   "results.points": "ලකුණු",
