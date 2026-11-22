@@ -5,7 +5,7 @@ import { z } from "zod";
 export const LOCALES = ["en", "si"] as const;
 export const localeSchema = z.enum(LOCALES);
 
-export const CATEGORIES = ["NERVOUS", "MUSCULOSKELETAL", "RADIOLOGY", "CARDIOVASCULAR", "RESPIRATORY", "RENAL", "GASTROINTESTINAL", "GENETICS", "ENDOCRINE"] as const;
+export const CATEGORIES = ["NERVOUS", "MUSCULOSKELETAL", "RADIOLOGY", "CARDIOVASCULAR", "RESPIRATORY", "RENAL", "GASTROINTESTINAL", "GENETICS", "ENDOCRINE", "GENERAL"] as const;
 export const categorySchema = z.enum(CATEGORIES);
 export const DIFFICULTIES = ["EASY", "MEDIUM", "HARD"] as const;
 export const difficultySchema = z.enum(DIFFICULTIES);
