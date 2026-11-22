@@ -3,7 +3,10 @@ import { GrandBoard } from "@/components/GrandBoard";
 import { Container, LinkButton, SectionTitle } from "@/components/ui";
 import { getT } from "@/i18n/server";
 
-export const metadata: Metadata = { title: "Grand leaderboard" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("meta.grand") };
+}
 
 export default async function GrandPage() {
   const { t } = await getT();
