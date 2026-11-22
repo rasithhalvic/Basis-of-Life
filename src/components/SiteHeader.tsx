@@ -19,7 +19,7 @@ export async function SiteHeader({ siteName }: { siteName: string }) {
           <span className="font-display text-lg font-semibold leading-tight sm:text-xl">{siteName}</span>
         </Link>
         <LanguageSwitcher />
-        <nav aria-label="Main" className="w-full sm:w-auto">
+        <nav aria-label={t("nav.main")} className="w-full sm:w-auto">
           <ul className="flex flex-wrap gap-1">
             {links.map((l) => (
               <li key={l.href}>
