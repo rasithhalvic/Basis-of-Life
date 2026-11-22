@@ -4,7 +4,10 @@ import { getT } from "@/i18n/server";
 import { getSettings } from "@/server/services/settings";
 import { QuizLobby } from "./QuizLobby";
 
-export const metadata: Metadata = { title: "General Knowledge Quiz" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t("meta.quiz") };
+}
 
 export default async function QuizPage() {
   const { t } = await getT();
