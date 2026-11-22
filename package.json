@@ -13,6 +13,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
+    "db:text": "tsx prisma/set-exhibition-text.ts",
     "db:demo": "tsx prisma/demo-seed.ts",
     "db:demo:remove": "tsx prisma/demo-seed.ts --remove",
     "admin:create": "tsx scripts/create-admin.ts",
