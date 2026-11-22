@@ -1,13 +1,13 @@
 /**
  * Base seed (safe for any environment, idempotent):
  *  - exhibition settings with placeholder text (only if none exist)
- *  - 15 SAMPLE pioneer records (only slugs that do not exist yet)
+ *  - pioneer records from seed-data/pioneers.ts (only slugs that do not exist yet)
  *  - 63 SAMPLE general-knowledge questions, all UNREVIEWED (only if none exist)
  *
  * Nothing here is approved exhibition content. No administrator is created.
  */
 import { PrismaClient } from "@prisma/client";
-import { SAMPLE_PIONEERS } from "./seed-data/pioneers";
+import { PIONEERS } from "./seed-data/pioneers";
 import { SAMPLE_QUESTIONS } from "./seed-data/questions";
 
 const prisma = new PrismaClient();
@@ -43,23 +43,31 @@ async function main() {
   }
 
   let created = 0;
-  for (const [i, p] of SAMPLE_PIONEERS.entries()) {
+  for (const p of PIONEERS) {
     const exists = await prisma.pioneer.findUnique({ where: { slug: p.slug } });
     if (exists) continue;
     const publishedCount = await prisma.pioneer.count({ where: { isPublished: true } });
     await prisma.pioneer.create({
       data: {
         slug: p.slug,
-        sortOrder: i + 1,
+        sortOrder: p.sortOrder,
         isPublished: publishedCount < 15,
         dataOrigin: "SAMPLE",
         sources: p.sources,
-        translations: { create: [{ locale: "en", ...p.en }, { locale: "si", ...p.si }] },
+        portraitUrl: p.portraitUrl,
+        portraitAttribution: p.portraitAttribution,
+        portraitLicense: p.portraitLicense,
+        translations: {
+          create: [
+            { locale: "en" as const, ...p.en },
+            ...(p.si ? [{ locale: "si" as const, ...p.si }] : []),
+          ],
+        },
       },
     });
     created++;
   }
-  console.log(`✓ Pioneers: ${created} sample records created (${SAMPLE_PIONEERS.length - created} already present)`);
+  console.log(`✓ Pioneers: ${created} sample records created (${PIONEERS.length - created} already present)`);
 
   const existingSample = await prisma.question.count({ where: { dataOrigin: "SAMPLE" } });
   if (existingSample === 0) {
